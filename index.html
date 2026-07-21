@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Questionnaire d'orientation</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f7f6f3;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  #app {
+    max-width: 640px;
+    width: 100%;
+    padding: 2rem 1.25rem 4rem;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 0.5rem; }
+  p.subtitle { color: #666; font-size: 15px; line-height: 1.6; margin: 0 0 1.5rem; }
+  .progress-wrap { display: flex; align-items: center; gap: 10px; margin-bottom: 1.5rem; }
+  .progress-bar-bg { flex: 1; height: 5px; background: #e5e3dd; border-radius: 3px; overflow: hidden; }
+  .progress-bar-fill { height: 100%; width: 0%; background: #d97757; transition: width .3s; }
+  .progress-label { font-size: 12px; color: #999; min-width: 45px; text-align: right; }
+  .question-text { font-size: 17px; font-weight: 600; margin: 0 0 1rem; line-height: 1.5; }
+  .hint { font-size: 12px; color: #999; margin: 0 0 10px; }
+  .opt-btn {
+    display: block; width: 100%; text-align: left;
+    padding: 14px 16px; border-radius: 12px;
+    border: 1px solid #ddd9d0; background: #fff;
+    cursor: pointer; font-size: 14px; line-height: 1.4;
+    color: #1a1a1a; margin-bottom: 8px;
+    transition: all .15s;
+  }
+  .opt-btn:hover { border-color: #bbb; }
+  .opt-btn.selected { background: #fdeee7; border-color: #d97757; color: #a34a26; }
+  textarea {
+    width: 100%; min-height: 90px; padding: 12px;
+    border-radius: 12px; border: 1px solid #ddd9d0;
+    font-size: 14px; font-family: inherit; resize: vertical;
+  }
+  .nav-row { display: flex; justify-content: space-between; margin-top: 1.75rem; }
+  button.nav-btn {
+    padding: 10px 18px; border-radius: 10px; border: 1px solid #ddd9d0;
+    background: #fff; font-size: 14px; font-weight: 500; cursor: pointer;
+  }
+  button.nav-btn.primary { background: #d97757; color: #fff; border-color: #d97757; }
+  button.nav-btn:disabled { opacity: 0.4; cursor: default; }
+  #start-screen, #person-screen, #result-screen { text-align: left; }
+  .person-btn {
+    display: block; width: 100%; padding: 16px; margin-bottom: 10px;
+    border-radius: 12px; border: 1px solid #ddd9d0; background: #fff;
+    font-size: 15px; font-weight: 500; cursor: pointer; text-align: left;
+  }
+  .person-btn:hover { border-color: #d97757; }
+  input#custom-name {
+    width: 100%; padding: 12px; border-radius: 10px;
+    border: 1px solid #ddd9d0; font-size: 14px; margin-top: 8px;
+  }
+  .status-msg { font-size: 13px; color: #888; margin-top: 8px; min-height: 18px; }
+  .resume-banner {
+    background: #fdeee7; border: 1px solid #f0c4ad; border-radius: 10px;
+    padding: 12px 14px; font-size: 13px; color: #a34a26; margin-bottom: 1rem;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="person-screen">
+    <h1>Qui répond ?</h1>
+    <p class="subtitle">Choisis ton prénom, ou tape-le si tu n'es pas dans la liste. Tes réponses sont sauvegardées automatiquement, tu peux fermer et reprendre plus tard.</p>
+    <div id="person-list"></div>
+    <input type="text" id="custom-name" placeholder="Ou tape ton prénom ici" />
+    <div class="nav-row">
+      <span></span>
+      <button class="nav-btn primary" id="person-continue">Continuer</button>
+    </div>
+  </div>
+
+  <div id="start-screen" style="display:none;">
+    <h1>Questionnaire d'orientation</h1>
+    <p class="subtitle">Pas de questions du genre "tu te vois comment dans 10 ans". Que du concret, des choix entre deux options, des trucs qui te sont déjà arrivés ou qui pourraient arriver demain. Tu peux choisir jusqu'à 2 réponses si aucune seule ne te correspond parfaitement. Réponds vite, au feeling.</p>
+    <div id="resume-banner-slot"></div>
+    <button class="nav-btn primary" id="start-btn" style="width:100%; padding:14px;">Commencer</button>
+  </div>
+
+  <div id="quiz-screen" style="display:none;">
+    <div class="progress-wrap">
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-fill"></div></div>
+      <span class="progress-label" id="progress-label">1 / 62</span>
+    </div>
+    <div id="question-container"></div>
+    <div class="status-msg" id="save-status"></div>
+  </div>
+
+  <div id="result-screen" style="display:none; text-align:center; padding-top:2rem;">
+    <h1>Merci, c'est enregistré !</h1>
+    <p class="subtitle">Toutes tes réponses ont été sauvegardées.</p>
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL = "https://bvuacfwjikjuzwrtddtl.supabase.co";
+const SUPABASE_KEY = "sb_publishable_srk5hKxrqAlGcjIJnzS_ew_xFfMlQDe";
+const TABLE = "reponses_questionnaire";
+const MAX_MULTI = 2;
+const KNOWN_PEOPLE = ["Kéziah", "Corentin"];
+
+const questions = [
+  {id:"reveil_weekend", q:"Un samedi matin, sans réveil, sans obligation. Tu te lèves à quelle heure environ, et tu fais quoi dans la première heure ?", type:"multi", opts:[
+    {v:"tot_actif", l:"Tôt, et je bouge tout de suite (sport, sortir, faire un truc)"},
+    {v:"tot_ecran", l:"Tôt, mais je reste sur mon téléphone/PC un moment"},
+    {v:"tard_mou", l:"Je fais la grasse mat', je traîne longtemps avant de vraiment démarrer"},
+    {v:"depend_jour", l:"Ça change beaucoup selon les weekends"}
+  ]},
+  {id:"objet_range", q:"Ta chambre / ton bureau, là maintenant : c'est plutôt...", type:"multi", opts:[
+    {v:"range_precis", l:"Rangé, chaque chose a sa place"},
+    {v:"bordel_organise", l:"Un peu en bazar mais je m'y retrouve"},
+    {v:"bordel_total", l:"Un vrai bordel, je perds des trucs régulièrement"},
+    {v:"minimaliste", l:"Presque vide, j'ai peu d'affaires"}
+  ]},
+  {id:"reaction_imprevu", q:"Un plan prévu tombe à l'eau au dernier moment (pote annule, truc annulé). Ta réaction immédiate...", type:"multi", opts:[
+    {v:"agace_fort", l:"Ça m'agace vraiment, je le vis mal sur le coup"},
+    {v:"trouve_alternative", l:"Je cherche vite un plan B"},
+    {v:"soulage_parfois", l:"Ça m'arrange parfois, un peu de temps pour moi"},
+    {v:"indifferent", l:"Ça me fait ni chaud ni froid"}
+  ]},
+  {id:"argent_poche", q:"Quand tu as de l'argent de poche ou un peu d'argent gagné, en général tu...", type:"multi", opts:[
+    {v:"depense_vite", l:"Le dépense assez vite, sur des trucs qui me font plaisir"},
+    {v:"garde_precis", l:"Le garde, je sais exactement combien j'ai"},
+    {v:"depense_sans_compter", l:"Le dépense sans trop savoir où il part"},
+    {v:"garde_pour_projet", l:"Le garde pour un truc précis que je veux acheter"}
+  ]},
+  {id:"conflit_reaction", q:"Il y a une embrouille ou un désaccord entre potes. Toi, en général...", type:"multi", opts:[
+    {v:"mediateur", l:"J'essaie de calmer/arranger le truc"},
+    {v:"m_efface", l:"Je reste en dehors, j'évite de me mêler"},
+    {v:"prends_position", l:"Je prends clairement position, même si ça peut chauffer"},
+    {v:"ca_m_agace", l:"Ça m'agace et j'ai envie que ça s'arrête vite"}
+  ]},
+  {id:"tache_repetitive", q:"On te demande de faire un truc répétitif mais utile (ranger, classer, refaire 20 fois le même exercice pour bien maîtriser). Tu...", type:"multi", opts:[
+    {v:"fais_sans_probleme", l:"Le fais sans problème si je vois que ça sert à un truc"},
+    {v:"m_ennuie_vite", l:"M'ennuie très vite, je décroche"},
+    {v:"cherche_a_optimiser", l:"Cherche un moyen d'aller plus vite ou de le rendre moins chiant"},
+    {v:"le_fais_mais_ronchonne", l:"Le fais, mais en râlant"}
+  ]},
+  {id:"parler_groupe", q:"Prendre la parole devant un groupe (classe, équipe, réunion), c'est pour toi...", type:"multi", opts:[
+    {v:"facile_naturel", l:"Facile, ça vient naturellement"},
+    {v:"ok_si_prepare", l:"Ok si j'ai préparé ce que je vais dire"},
+    {v:"stressant", l:"Stressant, je préfère éviter"},
+    {v:"depend_du_groupe", l:"Ça dépend totalement du groupe en face"}
+  ]},
+  {id:"objet_casse", q:"Un objet à toi (vélo, console, casque) tombe en panne. Ton réflexe...", type:"multi", opts:[
+    {v:"demonter_reparer", l:"L'ouvrir et essayer de comprendre/réparer moi-même"},
+    {v:"chercher_tuto", l:"Chercher un tuto ou demander à quelqu'un qui s'y connaît"},
+    {v:"faire_reparer", l:"Le faire réparer par un pro sans trop me poser de questions"},
+    {v:"racheter", l:"Regarder direct pour en racheter un autre"}
+  ]},
+  {id:"note_ressenti", q:"Tu reçois une bonne note à un truc qui ne t'intéressait pas vraiment. Tu ressens...", type:"multi", opts:[
+    {v:"fierte_quand_meme", l:"Une fierté quand même, une bonne note c'est bon à prendre"},
+    {v:"indifference_totale", l:"Une indifférence assez totale"},
+    {v:"gene_pas_merite", l:"Un peu bizarre, comme si c'était pas vraiment mérité"},
+    {v:"content_soulage", l:"Content, surtout soulagé que ce soit fait"}
+  ]},
+  {id:"decision_achat", q:"Tu dois acheter un truc un peu cher (vêtement, matos, cadeau). Ta manière de choisir...", type:"multi", opts:[
+    {v:"compare_longtemps", l:"Je compare longtemps avant de me décider"},
+    {v:"instinct_rapide", l:"Je vais à l'instinct, assez vite"},
+    {v:"demande_avis", l:"Je demande l'avis de plusieurs personnes avant"},
+    {v:"hesite_beaucoup", l:"J'hésite beaucoup, j'ai du mal à trancher"}
+  ]},
+  {id:"foule_ressenti", q:"Un endroit bondé, bruyant, plein de monde (concert, marché, soirée) te fait ressentir...", type:"multi", opts:[
+    {v:"energise", l:"De l'énergie, j'aime cette ambiance"},
+    {v:"fatigue_vite", l:"Ça me fatigue assez vite, je préfère partir tôt"},
+    {v:"ok_petit_groupe", l:"Ça va si je suis avec mon petit groupe à moi"},
+    {v:"evite_si_possible", l:"J'évite si je peux"}
+  ]},
+  {id:"attente_ressenti", q:"Attendre longtemps (file d'attente, rendez-vous en retard, résultat qui tarde), tu...", type:"multi", opts:[
+    {v:"patience_ok", l:"Ça va, je patiente sans trop de mal"},
+    {v:"agacement_rapide", l:"Ça m'agace assez vite"},
+    {v:"occupe_le_temps", l:"J'en profite pour faire autre chose en attendant"},
+    {v:"stress_monte", l:"Le stress monte, j'ai du mal à rester calme"}
+  ]},
+  {id:"compliment_reaction", q:"Quelqu'un te fait un compliment sincère sur un truc que t'as fait. Ta réaction...", type:"multi", opts:[
+    {v:"accepte_simplement", l:"Je le prends simplement, merci"},
+    {v:"minimise", l:"Je minimise, genre 'bof c'est rien'"},
+    {v:"gene", l:"Ça me met un peu mal à l'aise"},
+    {v:"fier_le_montre", l:"Content et je le montre"}
+  ]},
+  {id:"nouveau_truc", q:"On te propose d'essayer un truc totalement nouveau que tu ne connais pas (activité, sport, jeu). Ton réflexe...", type:"multi", opts:[
+    {v:"dis_oui_direct", l:"Je dis oui direct, curieux de tester"},
+    {v:"hesite_observe", l:"J'hésite, je regarde d'abord faire les autres"},
+    {v:"dis_non_souvent", l:"Je dis souvent non, je préfère ce que je connais"},
+    {v:"depend_du_truc", l:"Ça dépend complètement de l'activité"}
+  ]},
+  {id:"erreur_publique", q:"Tu te trompes devant tout le monde (en classe, sur un terrain, en groupe). Après coup...", type:"multi", opts:[
+    {v:"oublie_vite", l:"J'oublie assez vite, ça n'a pas d'importance"},
+    {v:"repense_longtemps", l:"J'y repense un moment, un peu gêné"},
+    {v:"veux_me_rattraper", l:"J'ai tout de suite envie de me rattraper"},
+    {v:"m_en_veux_fort", l:"Je m'en veux pas mal sur le coup"}
+  ]},
+  {id:"argent_gagner_comment", q:"Si tu devais gagner de l'argent rapidement cet été (job, service, autre), tu penserais d'abord à...", type:"multi", opts:[
+    {v:"job_classique", l:"Chercher un job classique (magasin, restauration, etc.)"},
+    {v:"vendre_service", l:"Proposer un service à des gens que je connais (cours, aide, bricole)"},
+    {v:"revendre_truc", l:"Acheter/revendre un truc pour faire une marge"},
+    {v:"sais_pas_trop", l:"Je saurais pas trop par où commencer"}
+  ]},
+  {id:"info_nouvelle", q:"Tu tombes sur une info ou une actu qui t'intéresse vraiment (peu importe le sujet). Après, tu...", type:"multi", opts:[
+    {v:"creuse_seul", l:"Je creuse tout seul, je vais chercher plus d'infos"},
+    {v:"en_parle_autour", l:"J'en parle direct autour de moi"},
+    {v:"garde_pour_moi", l:"Je le garde pour moi, sans forcément creuser plus"},
+    {v:"oublie_vite_aussi", l:"J'oublie assez vite en fait"}
+  ]},
+  {id:"corps_effort", q:"Un effort physique dur (courir longtemps, porter un truc lourd, match serré), pendant que ça fait mal, tu...", type:"multi", opts:[
+    {v:"aime_ce_moment", l:"J'aime bizarrement ce moment-là"},
+    {v:"serre_les_dents", l:"Je serre les dents, sans plaisir particulier"},
+    {v:"veux_que_ca_s_arrete", l:"J'ai hâte que ça s'arrête"},
+    {v:"evite_ces_situations", l:"J'évite en général ces situations"}
+  ]},
+  {id:"consignes_precises", q:"On te donne une consigne très précise, étape par étape, sans marge d'interprétation. Tu ressens...", type:"multi", opts:[
+    {v:"rassure_par_ca", l:"Rassuré, je sais exactement quoi faire"},
+    {v:"envie_de_changer", l:"L'envie de faire un peu différemment quand même"},
+    {v:"m_ennuie", l:"Ça m'ennuie, pas de place pour ma touche perso"},
+    {v:"depend_de_la_tache", l:"Ça dépend totalement de la tâche"}
+  ]},
+  {id:"argent_autres", q:"Un pote te demande de l'argent (petit montant) et tarde à te rembourser. Toi...", type:"multi", opts:[
+    {v:"redemande_direct", l:"Je lui redemande directement, sans gêne"},
+    {v:"attends_gene", l:"J'attends, gêné à l'idée de redemander"},
+    {v:"laisse_tomber", l:"Je laisse tomber, c'est pas grave"},
+    {v:"en_parle_a_dautres", l:"J'en parle à d'autres personnes autour, ça m'agace"}
+  ]},
+  {id:"projet_groupe_scolaire", q:"Dans un travail de groupe au lycée, en général tu finis par...", type:"multi", opts:[
+    {v:"faire_la_grosse_part", l:"Faire la plus grosse partie du travail moi-même"},
+    {v:"faire_ma_part_precise", l:"Faire exactement ma part, ni plus ni moins"},
+    {v:"organiser_les_autres", l:"Organiser qui fait quoi"},
+    {v:"suivre_le_mouvement", l:"Suivre le mouvement du groupe"}
+  ]},
+  {id:"ecran_temps", q:"Un jour normal de semaine, ton temps d'écran (hors lycée) c'est plutôt du...", type:"multi", opts:[
+    {v:"jeux_surtout", l:"Jeux vidéo surtout"},
+    {v:"reseaux_videos", l:"Réseaux sociaux / vidéos (Insta, TikTok, YouTube)"},
+    {v:"melange_equilibre", l:"Un mélange de tout, sans dominante"},
+    {v:"assez_peu", l:"Assez peu au final"}
+  ]},
+  {id:"critique_reaction", q:"On te fait une critique sur un truc que t'as fait, même si c'est dit gentiment. Ta première réaction intérieure...", type:"multi", opts:[
+    {v:"ecoute_pour_ameliorer", l:"J'écoute pour voir comment m'améliorer"},
+    {v:"vexe_un_peu", l:"Ça me vexe un peu sur le moment"},
+    {v:"me_defends", l:"J'ai envie de me justifier/défendre"},
+    {v:"m_en_fiche", l:"Je m'en fiche pas mal en fait"}
+  ]},
+  {id:"choix_seul_ou_groupe", q:"Pour un devoir ou un projet libre, si t'avais le choix total...", type:"multi", opts:[
+    {v:"seul_tranquille", l:"Je le ferais seul, tranquille, à mon rythme"},
+    {v:"en_binome", l:"En binôme avec quelqu'un que j'aime bien"},
+    {v:"en_groupe", l:"En groupe, plus d'ambiance"},
+    {v:"depend_du_sujet", l:"Ça dépend complètement du sujet"}
+  ]},
+  {id:"truc_bidouille", q:"Le dernier truc que t'as bidouillé/réparé/configuré toi-même (peu importe quoi), tu l'as fait parce que...", type:"multi", opts:[
+    {v:"jaimais_comprendre", l:"J'aimais bien comprendre comment ça marche"},
+    {v:"fallait_bien", l:"Fallait bien, personne d'autre pour le faire"},
+    {v:"economiser_argent", l:"Pour économiser au lieu de payer quelqu'un"},
+    {v:"ca_marrive_jamais", l:"Ça m'arrive jamais vraiment"}
+  ]},
+  {id:"deadline_gestion", q:"Un devoir à rendre dans une semaine. Toi en général...", type:"multi", opts:[
+    {v:"commence_direct", l:"Je commence direct, tranquille"},
+    {v:"fais_un_peu_chaque_jour", l:"Je fais un peu chaque jour"},
+    {v:"dernier_moment", l:"Je m'y mets au dernier moment"},
+    {v:"depend_de_l_envie", l:"Ça dépend si le sujet me motive"}
+  ]},
+  {id:"rire_humour", q:"Dans un groupe, ton rôle habituel c'est plutôt...", type:"multi", opts:[
+    {v:"celui_qui_fait_rire", l:"Celui qui fait rire, qui détend l'ambiance"},
+    {v:"celui_qui_ecoute", l:"Celui qui écoute plus qu'il ne parle"},
+    {v:"celui_qui_organise", l:"Celui qui organise, qui propose des plans"},
+    {v:"aucun_role_particulier", l:"Aucun rôle particulier, ça dépend"}
+  ]},
+  {id:"objet_perfection", q:"Quand tu rends un travail, tu préfères...", type:"multi", opts:[
+    {v:"peaufiner_longtemps", l:"Le peaufiner longtemps pour que ce soit nickel"},
+    {v:"rendre_correct_vite", l:"Le rendre correct, sans passer trop de temps dessus"},
+    {v:"minimum_syndical", l:"Faire le minimum qui suffit"},
+    {v:"depend_si_ca_compte", l:"Ça dépend si ça compte vraiment pour moi"}
+  ]},
+  {id:"conflit_autorite", q:"Un prof ou un adulte te donne un ordre que tu trouves injuste ou inutile. Tu...", type:"multi", opts:[
+    {v:"obeis_sans_discuter", l:"J'obéis sans trop discuter, pour éviter les ennuis"},
+    {v:"conteste_sur_le_moment", l:"Je conteste ou fais remarquer que c'est pas juste"},
+    {v:"obeis_mais_rale", l:"J'obéis mais je râle après, en privé"},
+    {v:"ignore_discretement", l:"J'essaie d'ignorer discrètement si possible"}
+  ]},
+  {id:"matiere_premiere_pref", q:"Un projet libre à mener, sans contrainte. Ce qui te motive le plus pour t'y mettre, c'est de manipuler...", type:"multi", opts:[
+    {v:"chiffres_donnees", l:"Des chiffres et des données (calculer, comparer, faire des tableaux)"},
+    {v:"objets_systemes", l:"Des objets ou des systèmes (comprendre comment ça marche, monter/configurer un truc)"},
+    {v:"idees_concepts", l:"Des idées (imaginer un concept, une solution, un truc qui n'existe pas encore)"},
+    {v:"aucun_des_trois", l:"Aucun des trois vraiment, plutôt autre chose"}
+  ]},
+  {id:"entreprendre_forme", q:"Si tu devais un jour lancer un truc à toi, tu imagines plutôt vendre...", type:"multi", opts:[
+    {v:"objet_physique", l:"Un objet physique (un produit, un matériel, un truc qu'on tient dans les mains)"},
+    {v:"service_prestation", l:"Un service (une prestation, de l'aide, une expertise)"},
+    {v:"contenu_plateforme", l:"Du contenu ou une plateforme (en ligne, digital)"},
+    {v:"pas_reflechi_a_ca", l:"J'y ai pas vraiment réfléchi en détail"}
+  ]},
+  {id:"section_travail_intro_marker", q:"Maintenant, des questions sur le travail et l'argent. Toujours des situations concrètes, pas d'abstrait.", type:"single_next", opts:[]},
+  {id:"horaires_pref", q:"Deux jobs d'été, même salaire total : l'un c'est 35h fixes du lundi au vendredi, l'autre c'est des horaires qui changent chaque semaine mais avec plus de jours de repos d'affilée. Tu prends lequel ?", type:"multi", opts:[
+    {v:"horaires_fixes", l:"Le fixe, je préfère savoir à quoi m'attendre chaque jour"},
+    {v:"horaires_variables", l:"Le variable, pour avoir plus de jours de repos groupés"},
+    {v:"depend_planning", l:"Ça dépend si je connais le planning à l'avance"}
+  ]},
+  {id:"chef_style", q:"Un chef qui contrôle tout ce que tu fais dans le détail, ou un chef qui te donne juste un objectif et te laisse te débrouiller — même si ça veut dire que tu peux te planter sans filet ?", type:"multi", opts:[
+    {v:"chef_controle", l:"Le chef qui contrôle, je préfère être sûr de bien faire"},
+    {v:"chef_objectif", l:"Le chef qui laisse faire, même avec le risque de se planter"},
+    {v:"depend_confiance", l:"Ça dépend si je sens que le chef me fait confiance ou pas"}
+  ]},
+  {id:"remuneration_type", q:"Deux salaires possibles pour le même genre de travail : 2200€ fixes garantis tous les mois, ou entre 1500€ et 3500€ selon tes résultats du mois. Tu choisis lequel sans trop hésiter ?", type:"multi", opts:[
+    {v:"fixe_garanti", l:"Le fixe garanti, la sécurité avant tout"},
+    {v:"variable_potentiel", l:"Le variable, j'accepte le risque pour le potentiel plus haut"},
+    {v:"hesite_vraiment", l:"J'hésiterais vraiment longtemps entre les deux"}
+  ]},
+  {id:"paiement_mode", q:"Un boulot où tu es payé au nombre d'heures passées, ou un boulot où tu es payé au résultat obtenu peu importe le temps que ça prend ?", type:"multi", opts:[
+    {v:"paye_heures", l:"Payé aux heures, c'est plus clair et prévisible"},
+    {v:"paye_resultat", l:"Payé au résultat, si je suis efficace je gagne plus vite"},
+    {v:"depend_du_travail", l:"Ça dépend totalement du type de travail"}
+  ]},
+  {id:"lieu_travail_pref", q:"Si tu pouvais choisir maintenant, ton lieu de travail idéal dans quelques années ce serait plutôt...", type:"multi", opts:[
+    {v:"bureau_fixe", l:"Un bureau fixe, un endroit à moi, une routine de lieu"},
+    {v:"terrain_dehors", l:"Dehors, sur le terrain, jamais le même endroit"},
+    {v:"chez_moi_remote", l:"Chez moi ou où je veux, du moment que j'ai internet"},
+    {v:"melange_lieux", l:"Un mélange, ni toujours pareil ni toujours différent"}
+  ]},
+  {id:"collegues_type", q:"Au travail plus tard, tu préfères être entouré de...", type:"multi", opts:[
+    {v:"petite_equipe_fixe", l:"Une petite équipe fixe que je connais bien, tous les jours"},
+    {v:"nouvelles_personnes", l:"Des gens différents souvent (nouveaux clients, nouveaux projets)"},
+    {v:"quasi_seul", l:"Presque personne, je bosse surtout seul"},
+    {v:"grande_structure", l:"Une grande structure avec beaucoup de monde autour"}
+  ]},
+  {id:"vacances_pref", q:"Pour les vacances et le temps libre, ce qui te parle le plus...", type:"multi", opts:[
+    {v:"peu_mais_regulier", l:"Peu de vacances mais un rythme cool toute l'année"},
+    {v:"beaucoup_coupures", l:"Beaucoup de vacances/coupures, quitte à bosser plus intensément le reste du temps"},
+    {v:"flexible_quand_je_veux", l:"Pouvoir m'organiser et prendre du temps libre quand je veux, pas forcément fixe"},
+    {v:"pas_reflechi", l:"J'y ai pas trop réfléchi honnêtement"}
+  ]},
+  {id:"echelle_carriere", q:"Dans 5 ans de carrière : tu préfères avoir gravi des échelons dans une seule boîte, ou avoir touché plusieurs boîtes/métiers différents ?", type:"multi", opts:[
+    {v:"une_seule_boite", l:"Une seule boîte, monter en grade, la sécurité de la continuité"},
+    {v:"plusieurs_experiences", l:"Plusieurs expériences différentes, bouger, varier"},
+    {v:"sais_pas_encore", l:"Aucune idée pour l'instant"}
+  ]},
+  {id:"pression_type", q:"Tu préfères un travail avec de la pression ponctuelle et intense (deadlines, gros coups) ou une pression faible mais constante tout le temps ?", type:"multi", opts:[
+    {v:"pression_ponctuelle", l:"Ponctuelle et intense, puis ça retombe"},
+    {v:"pression_faible_constante", l:"Faible mais tout le temps, jamais de gros pic"},
+    {v:"aucune_pression_ideal", l:"Idéalement, le moins de pression possible en général"}
+  ]},
+  {id:"argent_priorite_vie", q:"Si tu devais mettre dans l'ordre ce qui compte le plus pour toi dans un travail (le premier choisi compte double)...", type:"multi", opts:[
+    {v:"argent_dabord", l:"Gagner le plus possible, même si le quotidien est moins fun"},
+    {v:"temps_libre_dabord", l:"Avoir du temps pour moi, même si je gagne un peu moins"},
+    {v:"interet_dabord", l:"Que ça m'intéresse vraiment, même si c'est pas le mieux payé"},
+    {v:"stabilite_dabord", l:"Être sûr de ne jamais me retrouver sans rien"}
+  ]},
+  {id:"section_savoir_etre_marker", q:"Encore quelques questions, sur comment tu es avec les autres et face aux problèmes.", type:"single_next", opts:[]},
+  {id:"ecoute_situation1", q:"Un pote te raconte un problème qu'il a. Toi, le plus souvent...", type:"multi", opts:[
+    {v:"ecoute_jusquau_bout", l:"J'écoute jusqu'au bout avant de dire quoi que ce soit"},
+    {v:"donne_solution_vite", l:"Je propose vite une solution ou un conseil"},
+    {v:"relance_questions", l:"Je pose des questions pour mieux comprendre"},
+    {v:"coupe_parle_de_moi", l:"J'ai tendance à ramener à un truc similaire que j'ai vécu"}
+  ]},
+  {id:"ecoute_situation2", q:"Dans une conversation à plusieurs, tu remarques que quelqu'un n'a pas encore parlé alors qu'il semble avoir un avis. Tu...", type:"multi", opts:[
+    {v:"lui_demande", l:"Je lui demande direct ce qu'il en pense"},
+    {v:"remarque_sans_agir", l:"Je le remarque mais je n'interviens pas forcément"},
+    {v:"pas_remarque_dhabitude", l:"Je ne fais pas trop attention à ça d'habitude"},
+    {v:"depend_si_je_le_connais", l:"Ça dépend si c'est quelqu'un que je connais bien"}
+  ]},
+  {id:"expression_ressenti1", q:"Quand tu as un truc important à dire à quelqu'un (bonne ou mauvaise nouvelle), tu préfères...", type:"multi", opts:[
+    {v:"vive_voix_direct", l:"Le dire direct, en face, à voix haute"},
+    {v:"message_ecrit", l:"L'écrire, par message, c'est plus facile"},
+    {v:"attendre_bon_moment", l:"Attendre le bon moment pour le dire calmement"},
+    {v:"eviter_si_possible", l:"Éviter si je peux, laisser les choses se dire d'elles-mêmes"}
+  ]},
+  {id:"expression_ressenti2", q:"Est-ce que tu as l'impression que les gens comprennent facilement ce que tu veux dire, ou que tu dois souvent réexpliquer / que ça sort mal ?", type:"multi", opts:[
+    {v:"comprennent_facilement", l:"Ils comprennent facilement en général"},
+    {v:"dois_reexpliquer", l:"Je dois souvent reformuler ou réexpliquer"},
+    {v:"prefere_ecrire_que_parler", l:"Je m'exprime mieux à l'écrit qu'à l'oral"},
+    {v:"parle_peu_en_general", l:"Je parle peu en général, donc difficile à dire"}
+  ]},
+  {id:"service_situation1", q:"Un inconnu te demande son chemin ou un renseignement dans la rue. Ta réaction...", type:"multi", opts:[
+    {v:"aide_volontiers", l:"Je l'aide volontiers, sans y penser"},
+    {v:"aide_mais_bref", l:"Je l'aide mais le plus vite possible"},
+    {v:"mal_a_laise", l:"Ça me met un peu mal à l'aise"},
+    {v:"evite_le_contact", l:"J'évite si je peux (regarde ailleurs, fais style que j'ai pas entendu)"}
+  ]},
+  {id:"service_situation2", q:"Dans un magasin ou un resto, si le service est mauvais mais pas catastrophique, toi tu...", type:"multi", opts:[
+    {v:"comprends_le_vendeur", l:"J'essaie de comprendre le point de vue de la personne en face"},
+    {v:"agace_mais_dis_rien", l:"Ça m'agace mais je dis rien"},
+    {v:"le_fais_remarquer", l:"Je le fais remarquer calmement"},
+    {v:"indifferent_total", l:"Ça me touche pas plus que ça"}
+  ]},
+  {id:"anticipation_situation1", q:"Avant un évènement important (examen, match, rendez-vous), tu...", type:"multi", opts:[
+    {v:"prepare_a_lavance", l:"Je prépare à l'avance, j'anticipe ce qui peut arriver"},
+    {v:"improvise_sur_place", l:"Je préfère improviser sur le moment"},
+    {v:"stresse_sans_preparer", l:"Je stresse mais sans forcément bien me préparer"},
+    {v:"depend_de_limportance", l:"Ça dépend vraiment de l'enjeu"}
+  ]},
+  {id:"anticipation_situation2", q:"Tu vois un truc qui risque de mal tourner avant que ça arrive vraiment (une embrouille qui monte, un truc mal organisé). Tu...", type:"multi", opts:[
+    {v:"previens_avant", l:"Je préviens ou j'agis avant que ça empire"},
+    {v:"attends_de_voir", l:"J'attends de voir si ça empire vraiment"},
+    {v:"remarque_pas_toujours", l:"Je ne le remarque pas toujours à l'avance"},
+    {v:"men_mele_pas", l:"Je préfère ne pas m'en mêler, même si je le vois venir"}
+  ]},
+  {id:"conviction_situation1", q:"Tu veux convaincre tes parents ou un pote d'un truc auquel ils ne pensaient pas au départ (une sortie, un choix, une idée). Ta méthode...", type:"multi", opts:[
+    {v:"argumente_avec_raisons", l:"Je donne de vrais arguments, des raisons construites"},
+    {v:"insiste_avec_energie", l:"J'insiste avec énergie jusqu'à ce que ça passe"},
+    {v:"laisse_tomber_vite", l:"Si ça ne passe pas vite, je laisse tomber"},
+    {v:"demande_a_quelquun_dautre", l:"Je demande à quelqu'un d'autre de le faire pour moi"}
+  ]},
+  {id:"conviction_situation2", q:"Quelqu'un n'est vraiment pas d'accord avec toi sur un sujet qui te tient à cœur. Tu...", type:"multi", opts:[
+    {v:"defends_ton_point", l:"Tu défends ton point de vue jusqu'au bout"},
+    {v:"exposes_puis_laches", l:"Tu exposes ton avis une fois puis tu laisses filer"},
+    {v:"evites_le_debat", l:"Tu évites le débat, pas envie de te confronter"},
+    {v:"cherches_compromis", l:"Tu cherches un terrain d'entente"}
+  ]},
+  {id:"truc_qui_absorbe", q:"La dernière fois que t'as perdu la notion du temps sur un truc (2h qui passent sans le voir), c'était en train de...", type:"text", placeholder:"Décris ce moment, même si ça paraît anodin"},
+  {id:"truc_evite", q:"Y a-t-il un truc que tout le monde semble aimer faire, mais que toi tu détestes ou évites ?", type:"text", placeholder:"Même si ça paraît bizarre"},
+  {id:"fierte_recente", q:"La dernière chose dont t'as été vraiment fier, récemment, même un petit truc — c'était quoi ?", type:"text", placeholder:"Ça peut être tout petit"},
+  {id:"texte_libre_final", q:"Dernière chose, en texte libre, totalement libre : un truc que tu penses souvent sans le dire à voix haute ?", type:"text", placeholder:"Ce que tu veux, même en une phrase"}
+];
+
+const answerableQuestions = questions.filter(q => q.type !== 'single_next');
+
+let currentPerson = null;
+let current = 0;
+const answers = {};
+
+async function supaRequest(method, path, body) {
+  const res = await fetch(SUPABASE_URL + "/rest/v1/" + path, {
+    method: method,
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": "Bearer " + SUPABASE_KEY,
+      "Content-Type": "application/json",
+      "Prefer": body ? "resolution=merge-duplicates" : undefined
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error("Supabase error " + res.status + ": " + text);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function saveAnswer(questionId, value) {
+  const statusEl = document.getElementById('save-status');
+  try {
+    if (statusEl) statusEl.textContent = "Sauvegarde...";
+    await supaRequest(
+      "POST",
+      TABLE + "?on_conflict=personne,question_id",
+      { personne: currentPerson, question_id: questionId, reponse: JSON.stringify(value) }
+    );
+    if (statusEl) statusEl.textContent = "Enregistré";
+    setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 1200);
+  } catch (e) {
+    if (statusEl) statusEl.textContent = "Erreur de sauvegarde, réessaie";
+    console.error(e);
+  }
+}
+
+async function loadAnswers(personne) {
+  try {
+    const rows = await supaRequest(
+      "GET",
+      TABLE + "?personne=eq." + encodeURIComponent(personne) + "&select=question_id,reponse"
+    );
+    const loaded = {};
+    (rows || []).forEach(r => {
+      try { loaded[r.question_id] = JSON.parse(r.reponse); } catch(e) { loaded[r.question_id] = []; }
+    });
+    return loaded;
+  } catch (e) {
+    console.error(e);
+    return {};
+  }
+}
+
+function renderPersonList() {
+  const list = document.getElementById('person-list');
+  list.innerHTML = '';
+  KNOWN_PEOPLE.forEach(name => {
+    const btn = document.createElement('button');
+    btn.className = 'person-btn';
+    btn.textContent = name;
+    btn.addEventListener('click', () => selectPerson(name));
+    list.appendChild(btn);
+  });
+}
+
+async function selectPerson(name) {
+  currentPerson = name.trim();
+  if (!currentPerson) return;
+  document.getElementById('person-screen').style.display = 'none';
+  document.getElementById('start-screen').style.display = 'block';
+
+  const loaded = await loadAnswers(currentPerson);
+  Object.keys(loaded).forEach(k => answers[k] = loaded[k]);
+
+  const answeredCount = answerableQuestions.filter(q => answers[q.id] !== undefined).length;
+  if (answeredCount > 0 && answeredCount < answerableQuestions.length) {
+    const banner = document.createElement('div');
+    banner.className = 'resume-banner';
+    banner.textContent = "Tu as déjà répondu à " + answeredCount + " questions sur " + answerableQuestions.length + ". Tu vas reprendre où tu en étais.";
+    document.getElementById('resume-banner-slot').innerHTML = '';
+    document.getElementById('resume-banner-slot').appendChild(banner);
+  } else if (answeredCount >= answerableQuestions.length && answerableQuestions.length > 0) {
+    const banner = document.createElement('div');
+    banner.className = 'resume-banner';
+    banner.textContent = "Tu as déjà terminé ce questionnaire. Tu peux le refaire si tu veux revoir/modifier tes réponses.";
+    document.getElementById('resume-banner-slot').innerHTML = '';
+    document.getElementById('resume-banner-slot').appendChild(banner);
+  }
+}
+
+document.getElementById('person-continue').addEventListener('click', () => {
+  const customName = document.getElementById('custom-name').value.trim();
+  if (customName) {
+    selectPerson(customName);
+  } else {
+    alert("Choisis un prénom dans la liste ou tape le tien.");
+  }
+});
+renderPersonList();
+
+document.getElementById('start-btn').addEventListener('click', () => {
+  document.getElementById('start-screen').style.display = 'none';
+  document.getElementById('quiz-screen').style.display = 'block';
+  current = findFirstUnanswered();
+  renderQuestion();
+});
+
+function findFirstUnanswered() {
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    if (q.type === 'single_next') continue;
+    if (answers[q.id] === undefined) return i;
+  }
+  return 0;
+}
+
+function renderQuestion() {
+  const q = questions[current];
+  const container = document.getElementById('question-container');
+  const answeredSoFar = questions.slice(0, current).filter(qq => qq.type !== 'single_next' && answers[qq.id] !== undefined).length;
+  document.getElementById('progress-fill').style.width = (answeredSoFar / answerableQuestions.length * 100) + '%';
+  document.getElementById('progress-label').textContent = (answeredSoFar + 1) + ' / ' + answerableQuestions.length;
+
+  let html = '<p class="question-text">' + q.q + '</p>';
+
+  if (q.type === 'text') {
+    html += '<textarea id="text-input" placeholder="' + q.placeholder + '"></textarea>';
+  } else if (q.type === 'single_next') {
+    html += '';
+  } else {
+    html += '<p class="hint">Choisis 1 ou 2 réponses</p>';
+    q.opts.forEach(o => {
+      html += '<button type="button" class="opt-btn" data-v="' + o.v + '">' + o.l + '</button>';
+    });
+  }
+
+  html += '<div class="nav-row">';
+  html += current > 0 ? '<button class="nav-btn" id="back-btn">Retour</button>' : '<span></span>';
+  html += '<button class="nav-btn primary" id="next-btn">' + (current === questions.length - 1 ? 'Terminer' : 'Suivant') + '</button>';
+  html += '</div>';
+
+  container.innerHTML = html;
+
+  if (q.type === 'multi') {
+    const selected = new Set(answers[q.id] || []);
+    const btns = container.querySelectorAll('.opt-btn');
+    function refreshStyles() {
+      btns.forEach(b => {
+        b.classList.toggle('selected', selected.has(b.dataset.v));
+      });
+    }
+    refreshStyles();
+    btns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (selected.has(btn.dataset.v)) {
+          selected.delete(btn.dataset.v);
+        } else {
+          if (selected.size >= MAX_MULTI) {
+            const first = selected.values().next().value;
+            selected.delete(first);
+          }
+          selected.add(btn.dataset.v);
+        }
+        answers[q.id] = Array.from(selected);
+        refreshStyles();
+        saveAnswer(q.id, answers[q.id]);
+      });
+    });
+  } else if (q.type === 'text') {
+    const ta = document.getElementById('text-input');
+    ta.value = (answers[q.id] && answers[q.id][0]) || '';
+  }
+
+  document.getElementById('next-btn').addEventListener('click', () => {
+    if (q.type === 'text') {
+      const ta = document.getElementById('text-input');
+      answers[q.id] = [ta.value.trim()];
+      saveAnswer(q.id, answers[q.id]);
+    }
+    advance();
+  });
+
+  const backBtn = document.getElementById('back-btn');
+  if (backBtn) backBtn.addEventListener('click', () => { current--; renderQuestion(); });
+}
+
+function advance() {
+  if (current < questions.length - 1) {
+    current++;
+    renderQuestion();
+  } else {
+    document.getElementById('quiz-screen').style.display = 'none';
+    document.getElementById('result-screen').style.display = 'block';
+  }
+}
+</script>
+</body>
+</html>
